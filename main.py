@@ -198,6 +198,7 @@ cam_t.start()
 print(f"Ready. Templates: {list(templates.keys())}") 
 input(">>> Press ENTER to start") 
 
+''
 try: 
     while True: 
         if not frame_buffer:
@@ -207,7 +208,20 @@ try:
         now = time.time() 
         crop_mask, symbol_box, bin_clean, best_contour = detect_and_crop_symbol(frame) 
 
+        # --- PRE-PROCESS COLOR FOR PIXEL CENSUS ---
+        small = cv2.resize(frame, (160, 120))
+        hsv = cv2.cvtColor(small, cv2.COLOR_RGB2HSV)
+        m_r1 = cv2.inRange(hsv, HSV_THRESHOLDS["red1"]["low"], HSV_THRESHOLDS["red1"]["high"])
+        m_r2 = cv2.inRange(hsv, HSV_THRESHOLDS["red2"]["low"], HSV_THRESHOLDS["red2"]["high"])
+        m_y = cv2.inRange(hsv, HSV_THRESHOLDS["yellow"]["low"], HSV_THRESHOLDS["yellow"]["high"])
+        color_mask = cv2.bitwise_or(cv2.bitwise_or(m_r1, m_r2), m_y)
+        
+        # Split bottom ROI to check for color lines
+        left_px = cv2.countNonZero(color_mask[70:120, 0:80])
+        right_px = cv2.countNonZero(color_mask[70:120, 80:160])
+
         if current_state == STATE_FOLLOWING: 
+            # 1. CHECK FOR TASK A: ARROWS (Two Black Lines)
             if best_contour is not None and now > COOLDOWN_UNTIL: 
                 detection_frames += 1 
                 if detection_frames >= REQUIRED_FRAMES: 
@@ -221,18 +235,12 @@ try:
                                 good = [m for m in matches if m.distance < GOOD_MATCH_DIST] 
                                 if len(good) > max_matches: 
                                     max_matches = len(good); best_name = name 
-                     
+
                     if max_matches > MIN_MATCH_COUNT: 
-                        print(f"MATCH: {best_name}") 
                         name_low = best_name.lower()
+                        print(f"TASK A MATCH: {best_name}")
                         
-                        if "recycle" in name_low:
-                            recycle_until = now + RECYCLE_DURATION
-                            current_state = STATE_RECYCLING
-                        elif "danger" in name_low or "button" in name_low:
-                            stop_until = now + 5.0
-                            current_state = STATE_STOPPED
-                        elif "left" in name_low: 
+                        if "left" in name_low: 
                             forced_turn_side = "left" 
                             stop_until = now + 1.2 
                             current_state = STATE_STOPPED
@@ -240,10 +248,26 @@ try:
                             forced_turn_side = "right" 
                             stop_until = now + 1.2 
                             current_state = STATE_STOPPED
+                        elif "recycle" in name_low:
+                            recycle_until = now + RECYCLE_DURATION
+                            current_state = STATE_RECYCLING
+                        elif "danger" in name_low or "button" in name_low:
+                            stop_until = now + 5.0
+                            current_state = STATE_STOPPED
                         else: 
                             stop_until = now + 2.0 
                             current_state = STATE_STOPPED
+
                     detection_frames = 0 
+            
+            # 2. CHECK FOR TASK B: COLOR LINE CENSUS (No Arrow)
+            elif (left_px + right_px) > 600 and now > COOLDOWN_UNTIL:
+                print("TASK B: Color Census Detected")
+                forced_turn_side = "left" if left_px > right_px else "right"
+                # For color, we skip the STOP state and go straight to search/turn
+                current_state = STATE_FORCED_TURN
+                forced_turn_until = now + 4.0 
+
             else: 
                 detection_frames = 0 
                 err, count, _ = get_line_error(frame) 
@@ -260,25 +284,28 @@ try:
                     current_state = STATE_FOLLOWING 
 
         elif current_state == STATE_FORCED_TURN: 
-            small = cv2.resize(frame, (160, 120)) 
-            hsv = cv2.cvtColor(small, cv2.COLOR_RGB2HSV) 
+            # This logic now works for BOTH tasks. 
+            # It spins until the sensor sees Color OR Black on the target side.
             
-            m_r1 = cv2.inRange(hsv, HSV_THRESHOLDS["red1"]["low"], HSV_THRESHOLDS["red1"]["high"])
-            m_r2 = cv2.inRange(hsv, HSV_THRESHOLDS["red2"]["low"], HSV_THRESHOLDS["red2"]["high"])
-            m_y = cv2.inRange(hsv, HSV_THRESHOLDS["yellow"]["low"], HSV_THRESHOLDS["yellow"]["high"])
-            mask = cv2.bitwise_or(cv2.bitwise_or(m_r1, m_r2), m_y)
+            # Use the color mask we made at the top
+            black_mask = cv2.inRange(hsv, HSV_THRESHOLDS["black"]["low"], HSV_THRESHOLDS["black"]["high"])
+            combined_mask = cv2.bitwise_or(color_mask, black_mask)
             
-            roi = mask[70:120, 0:80] if forced_turn_side == "left" else mask[70:120, 80:160] 
-            if cv2.countNonZero(roi) > 400: 
+            roi = combined_mask[70:120, 0:80] if forced_turn_side == "left" else combined_mask[70:120, 80:160] 
+            
+            if cv2.countNonZero(roi) > 500: # Found a line!
+                print(f"Line acquired on {forced_turn_side}")
                 forced_turn_side = None 
                 COOLDOWN_UNTIL = now + 2.0 
                 current_state = STATE_FOLLOWING 
             else: 
+                # Keep pivoting toward the side we stored
                 last_error = -40 if forced_turn_side == "left" else 40 
                 move_robot(None, 0) 
+            
             if now > forced_turn_until: 
                 forced_turn_side = None 
-                current_state = STATE_FOLLOWING 
+                current_state = STATE_FOLLOWING
 
         elif current_state == STATE_RECYCLING:
             last_error = 40 
