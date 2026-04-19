@@ -2,17 +2,17 @@ import time
 import os 
 import cv2 
 import numpy as np 
-import RPi.GPIO as GPIO 
-from picamera2 import Picamera2 
-import threading
-from collections import deque
+import RPi.GPIO as GPIO             #--allow us to use pins on raspberry pi
+from picamera2 import Picamera2     #--allow access to camera
+import threading                    #--for threading
+from collections import deque   #--deque is technique to make buffer only store 1 image
 
 # --- GPIO SETUP --- 
 GPIO.setmode(GPIO.BCM) 
 ENA, IN1, IN2 = 12, 23, 24 
 ENB, IN3, IN4 = 13, 17, 27 
 GPIO.setup([IN1, IN2, ENA, IN3, IN4, ENB], GPIO.OUT) 
-pwmA = GPIO.PWM(ENA, 1000); pwmB = GPIO.PWM(ENB, 1000) 
+pwmA = GPIO.PWM(ENA, 1000); pwmB = GPIO.PWM(ENB, 1000)     #--frequency of 1000 Hz, so one cycle is 1 millisecond
 pwmA.start(0); pwmB.start(0) 
 
 # --- SETTINGS & GLOBALS --- 
@@ -103,15 +103,18 @@ def get_skeleton(img):
     return skel 
 
 def load_templates(): 
-    tpls = {} 
-    if not os.path.exists(SAVE_DIR): return tpls 
-    for f in os.listdir(SAVE_DIR): 
-        if f.lower().endswith(".png"): 
-            img = cv2.imread(os.path.join(SAVE_DIR, f), cv2.IMREAD_GRAYSCALE) 
-            if img is not None: 
-                skel = get_skeleton(cv2.resize(img, (120, 120))) 
-                kp, des = orb.detectAndCompute(skel, None) 
-                if des is not None: tpls[f.replace(".png", "")] = des 
+    tpls = {}                                                     # 1. Create an empty dictionary to store our symbol "passwords"
+    if not os.path.exists(SAVE_DIR): return tpls                 # 2. Check if the folder where symbols are saved actually exists
+    for f in os.listdir(SAVE_DIR):                                 # 3. Loop through every single file inside that folder
+        if f.lower().endswith(".png"):                                                    # 4. Only look at files that end in ".png" (ignore other files)
+            img = cv2.imread(os.path.join(SAVE_DIR, f), cv2.IMREAD_GRAYSCALE)             # 5. Read the image from the folder in Grayscale (Black and White)
+            if img is not None:                                                         # 6. Make sure the image file isn't corrupted or empty
+                skel = get_skeleton(cv2.resize(img, (120, 120)))                         # 7. Resize the image to 120x120 pixels and "skeletonize" it
+                                                                                        # This turns thick shapes into thin 1-pixel lines for better matching
+                kp, des = orb.detectAndCompute(skel, None)                                 # 8. Use ORB to find Keypoints (kp) and Descriptors (des)
+                                                                                            # 'des' is the mathematical "fingerprint" of the symbol
+                if des is not None: tpls[f.replace(".png", "")] = des                         # 9. If the math was successful, save it in our dictionary
+                                                                                                # Use the filename (minus the .png) as the name of the symbol
     return tpls 
 
 def detect_and_crop_symbol(frame_rgb): 
