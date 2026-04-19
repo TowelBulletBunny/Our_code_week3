@@ -207,6 +207,10 @@ try:
         m_r2 = cv2.inRange(hsv, HSV_THRESHOLDS["red2"]["low"], HSV_THRESHOLDS["red2"]["high"])
         m_y = cv2.inRange(hsv, HSV_THRESHOLDS["yellow"]["low"], HSV_THRESHOLDS["yellow"]["high"])
         color_mask = cv2.bitwise_or(cv2.bitwise_or(m_r1, m_r2), m_y)
+
+        # ADDED BLACK PIXEL CENSUS HERE
+        black_mask = cv2.inRange(hsv, HSV_THRESHOLDS["black"]["low"], HSV_THRESHOLDS["black"]["high"])
+        b_px = cv2.countNonZero(black_mask[70:120, 0:160])
         
         left_px = cv2.countNonZero(color_mask[70:120, 0:80])
         right_px = cv2.countNonZero(color_mask[70:120, 80:160])
