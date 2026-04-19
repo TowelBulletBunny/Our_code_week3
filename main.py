@@ -254,7 +254,7 @@ try:
                 move_robot(err, count) 
 
             # Handle "Left-Out/Right-Out" when color is lost but memory is active
-            elif color_entry_side is not None and total_color < 100:
+            elif color_entry_side is not None and total_color < 100 and b_px < BLACK_THRESHOLD:
                 print(f"Color lost! Memory Pivot: {color_entry_side}")
                 last_error = -40 if color_entry_side == "left" else 40
                 move_robot(None, 0) # Force pivot in entry direction
