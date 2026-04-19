@@ -21,13 +21,13 @@ color_entry_side = None  # Memory for Left-In/Left-Out recovery
 SAVE_DIR = "templates" 
 os.makedirs(SAVE_DIR, exist_ok=True) 
 
-GOOD_MATCH_DIST = 50 
-MIN_MATCH_COUNT = 10 
-ROI_START = 0.55         
-REQUIRED_FRAMES = 5    
-detection_frames = 0   
-COOLDOWN_UNTIL = 0     
-stop_until = 0     
+GOOD_MATCH_DIST = 50  #--how similar the symbol is to the one save in folder
+MIN_MATCH_COUNT = 10  #--minimum similarity to confirm the symbol is same 
+ROI_START = 0.55         #--the top 55% of the screen
+REQUIRED_FRAMES = 5     #--minimum frames to know symbol detected
+detection_frames = 0   #--counter to check how many frames it sees a symbol
+COOLDOWN_UNTIL = 0     #--the cooldown system ( prevent repeat action )
+stop_until = 0     #--variable to keep track of the cooldown time
 
 # Thresholds for switching logic
 COLOR_THRESHOLD = 800  # Min pixels to prioritize color following
@@ -64,7 +64,7 @@ bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 # --- MOTOR FUNCTIONS --- 
 def stop_motors(): 
     GPIO.output([IN1, IN2, IN3, IN4], GPIO.LOW) 
-    pwmA.ChangeDutyCycle(0); pwmB.ChangeDutyCycle(0) 
+    pwmA.ChangeDutyCycle(0); pwmB.ChangeDutyCycle(0)  #--0 duty cycles
 
 def move_robot(error, pixel_count): 
     global last_error 
@@ -72,20 +72,21 @@ def move_robot(error, pixel_count):
     Kp, Kd = 4.5, 3.0 
      
     if error is not None: 
-        steering = np.clip((error * Kp) + ((error - last_error) * Kd), -MAX_STEERING, MAX_STEERING) 
+        steering = np.clip((error * Kp) + ((error - last_error) * Kd), -MAX_STEERING, MAX_STEERING) #--the bigger the error, Kp will add to steering to go back on track, Kd will reduce the steering of Kp to minimize overshooting
+                                                                                                    #--steering cap at -35 to 35
         last_error = error 
-        l_pwr, r_pwr = BASE_SPEED + steering, BASE_SPEED - steering 
+        l_pwr, r_pwr = BASE_SPEED + steering, BASE_SPEED - steering                                 #--set the duty cycle of left and right motor
         GPIO.output([IN1, IN3], GPIO.LOW); GPIO.output([IN2, IN4], GPIO.HIGH) 
     else: 
-        l_pwr = PIVOT_SPEED if last_error > 0 else -PIVOT_SPEED 
+        l_pwr = PIVOT_SPEED if last_error > 0 else -PIVOT_SPEED                                     #-- pivot the car when line lost (it knows where to spin based on last_error)
         r_pwr = -PIVOT_SPEED if last_error > 0 else PIVOT_SPEED 
-        GPIO.output(IN1, GPIO.LOW if l_pwr > 0 else GPIO.HIGH) 
+        GPIO.output(IN1, GPIO.LOW if l_pwr > 0 else GPIO.HIGH)                                     #--determines the direction of motor (turn left or right)
         GPIO.output(IN2, GPIO.HIGH if l_pwr > 0 else GPIO.LOW) 
         GPIO.output(IN3, GPIO.LOW if r_pwr > 0 else GPIO.HIGH) 
         GPIO.output(IN4, GPIO.HIGH if r_pwr > 0 else GPIO.LOW) 
          
-    pwmA.ChangeDutyCycle(max(0, min(100, abs(l_pwr)))) 
-    pwmB.ChangeDutyCycle(max(0, min(100, abs(r_pwr)))) 
+    pwmA.ChangeDutyCycle(max(0, min(100, abs(l_pwr))))  #--cap the duty cycle (0 to 100)
+    pwmB.ChangeDutyCycle(max(0, min(100, abs(r_pwr)))) #--cap the duty cycle (0 to 100)
 
 # --- VISION FUNCTIONS --- 
 def get_skeleton(img): 
@@ -114,26 +115,29 @@ def load_templates():
     return tpls 
 
 def detect_and_crop_symbol(frame_rgb): 
-    H, W, _ = frame_rgb.shape 
-    roi = frame_rgb[0:int(H * ROI_START), :]  
-    hsv = cv2.cvtColor(roi, cv2.COLOR_RGB2HSV) 
+    H, W, _ = frame_rgb.shape                                    # 1. Get image dimensions (H=Height, W=Width)
+    roi = frame_rgb[0:int(H * ROI_START), :]                      # 2. Crop the image to look only at the top 55% (where signs are located)
+    hsv = cv2.cvtColor(roi, cv2.COLOR_RGB2HSV)                     # 3. Convert that top section to HSV color space for better color detection
     
-    color_mask = cv2.medianBlur(cv2.inRange(hsv, HSV_THRESHOLDS["black"]["low"], HSV_THRESHOLDS["black"]["high"]), 5)  
+    color_mask = cv2.medianBlur(cv2.inRange(hsv, HSV_THRESHOLDS["black"]["low"], HSV_THRESHOLDS["black"]["high"]), 5)   # 4. Create a mask to find BLACK pixels (signs are usually black, act as color filter) 
+                                                                                                                        # medianBlur(..., 5) removes "salt and pepper" noise (little white dots) 
     
-    gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY) 
-    bin_inv = cv2.adaptiveThreshold(cv2.GaussianBlur(gray, (5, 5), 0), 255,   
-                                    cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 21, 5) 
-    bin_clean = cv2.bitwise_and(bin_inv, color_mask) 
-    bin_clean = cv2.dilate(bin_clean, np.ones((3, 3), np.uint8), iterations=1) 
-    weld = cv2.morphologyEx(bin_clean, cv2.MORPH_CLOSE, np.ones((20, 20), np.uint8)) 
-    contours, _ = cv2.findContours(weld, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) 
-    if not contours: return None, None, bin_clean, None 
-    c = max(contours, key=cv2.contourArea) 
-    if cv2.contourArea(c) < 600: return None, None, bin_clean, None 
-    x, y, w, h = cv2.boundingRect(c) 
-    pad = 10 
-    crop = bin_clean[max(0, y-pad):min(int(H*ROI_START), y+h+pad), max(0, x-pad):min(W, x+w+pad)] 
-    return crop, (x, y, x+w, y+h), bin_clean, c 
+    gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)                                                     # 5. Create a Grayscale version for detail detection
+    bin_inv = cv2.adaptiveThreshold(cv2.GaussianBlur(gray, (5, 5), 0), 255,                          
+              cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 21, 5)                         # 6. Use Adaptive Thresholding to turn the image into pure Black and White
+                                                                                                    # This helps see the symbol even if the lighting in the room changes, act as edge finder
+    bin_clean = cv2.bitwise_and(bin_inv, color_mask)                                             # 7. Keep ONLY the pixels that are both "Sign-shaped" (bin_inv) AND "Black" (color_mask)
+    bin_clean = cv2.dilate(bin_clean, np.ones((3, 3), np.uint8), iterations=1)                     # 8. Dilate makes the white pixels "thicker" to close small gaps in the symbol
+    weld = cv2.morphologyEx(bin_clean, cv2.MORPH_CLOSE, np.ones((20, 20), np.uint8))                 # 9. "Weld" nearby white shapes together using MORPH_CLOSE 
+                                                                                                     # This treats a broken symbol as one solid object
+    contours, _ = cv2.findContours(weld, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)                 # 10. Find the outlines (contours) of all white shapes in the cleaned image
+    if not contours: return None, None, bin_clean, None                                                # 11. If no shapes are found, return nothing
+    c = max(contours, key=cv2.contourArea)                                                             # 12. Pick the largest shape found (this is likely our symbol/sign)
+    if cv2.contourArea(c) < 600: return None, None, bin_clean, None                                     # 13. If the largest shape is too tiny (noise), ignore it
+    x, y, w, h = cv2.boundingRect(c)                                                                     # 14. Draw a box around the shape and add 10 pixels of "padding"
+    pad = 10                                                                                             
+    crop = bin_clean[max(0, y-pad):min(int(H*ROI_START), y+h+pad), max(0, x-pad):min(W, x+w+pad)]         # 15. Cut (Crop) the symbol out of the cleaned image so we can compare it to our templates
+    return crop, (x, y, x+w, y+h), bin_clean, c                                                            # 16. Return the cropped symbol, the box coordinates, the full mask, and the contour
 
 def get_line_error(frame_rgb): 
     small = cv2.resize(frame_rgb, (160, 120)) 
@@ -146,26 +150,26 @@ def get_line_error(frame_rgb):
     
     black_mask = cv2.inRange(hsv, HSV_THRESHOLDS["black"]["low"], HSV_THRESHOLDS["black"]["high"])
     
-    color_roi = color_mask[70:120, 0:160] 
-    black_roi = black_mask[70:120, 0:160]
+    color_roi = color_mask[70:120, 0:160] #--vertical, horizontal--
+    black_roi = black_mask[70:120, 0:160] #--vertical, horizontal--
     
     c_px = cv2.countNonZero(color_roi)
     b_px = cv2.countNonZero(black_roi)
     
-    if c_px > COLOR_THRESHOLD:
-        active_roi = color_roi
-    elif b_px > BLACK_THRESHOLD:
-        active_roi = black_roi
+    if c_px > COLOR_THRESHOLD:    # Priority 1: If I see enough RED/YELLOW
+        active_roi = color_roi       # Only use the color line for math
+    elif b_px > BLACK_THRESHOLD:        # Priority 2: If no color, but I see BLACK
+        active_roi = black_roi        # Use the black line for math
     else:
-        return None, 0, color_roi 
+        return None, 0, color_roi         # I see nothing!
 
     M = cv2.moments(active_roi) 
-    if M['m00'] > 0: 
-        error = int(M['m10'] / M['m00']) - 80 
+    if M['m00'] > 0:                                                                         
+        error = int(M['m10'] / M['m00']) - 80         #--gets the position of the line and minus 80 which is center of camera
         
         left_count = cv2.countNonZero(active_roi[:, 0:80]) 
         right_count = cv2.countNonZero(active_roi[:, 80:160]) 
-        if (left_count + right_count) > 2500: 
+        if (left_count + right_count) > 2500:                     #--used for junctions only
             error = -40 if left_count > right_count else 40 
             
         return error, M['m00']/255, active_roi 
@@ -215,7 +219,8 @@ try:
         left_px = cv2.countNonZero(color_mask[70:120, 0:80])
         right_px = cv2.countNonZero(color_mask[70:120, 80:160])
         total_color = left_px + right_px
-
+        
+        #--state for line following, detecting symbol, matching symbols, and colour line detection
         if current_state == STATE_FOLLOWING: 
             # 1. CHECK FOR TASK A: ARROWS
             if best_contour is not None and now > COOLDOWN_UNTIL: 
@@ -280,6 +285,7 @@ try:
                 else: 
                     COOLDOWN_UNTIL = now + 3.0; current_state = STATE_FOLLOWING 
 
+        #--state for turning to find colour line or black line in junction 
         elif current_state == STATE_FORCED_TURN: 
             black_mask = cv2.inRange(hsv, HSV_THRESHOLDS["black"]["low"], HSV_THRESHOLDS["black"]["high"])
             combined_mask = cv2.bitwise_or(color_mask, black_mask)
@@ -295,6 +301,7 @@ try:
             if now > forced_turn_until: 
                 forced_turn_side = None; current_state = STATE_FOLLOWING
 
+        #--state when notice recycling sign
         elif current_state == STATE_RECYCLING:
             last_error = 40; move_robot(None, 0)
             if now >= recycle_until:
