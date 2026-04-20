@@ -1,6 +1,6 @@
 import time 
-import os 
-import cv2 
+import os                        #--how the script talks to the rapsberry pi
+import cv2                         #--use opencv
 import numpy as np 
 import RPi.GPIO as GPIO             #--allow us to use pins on raspberry pi
 from picamera2 import Picamera2     #--allow access to camera
