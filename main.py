@@ -34,7 +34,7 @@ COLOR_THRESHOLD = 800  # Min pixels to prioritize color following
 BLACK_THRESHOLD = 500  # Min pixels to consider black line valid
 
 # Threading Globals
-frame_buffer = deque(maxlen=1)
+frame_buffer = deque(maxlen=1)         #--the storage for the image taken by camera
 running = True
 
 # --- HSV THRESHOLDS ---
@@ -51,11 +51,11 @@ STATE_STOPPED = 1
 STATE_FORCED_TURN = 2 
 STATE_RECYCLING = 3 
 
-current_state = STATE_FOLLOWING 
+current_state = STATE_FOLLOWING                 
 forced_turn_side = None 
 forced_turn_until = 0 
 recycle_until = 0 
-RECYCLE_DURATION = 1.8 
+RECYCLE_DURATION = 1.8                        
 
 # Initialize ORB 
 orb = cv2.ORB_create(nfeatures=500) 
@@ -146,18 +146,18 @@ def get_line_error(frame_rgb):
     small = cv2.resize(frame_rgb, (160, 120)) 
     hsv = cv2.cvtColor(small, cv2.COLOR_RGB2HSV) 
     
-    m1 = cv2.inRange(hsv, HSV_THRESHOLDS["red1"]["low"], HSV_THRESHOLDS["red1"]["high"]) 
-    m2 = cv2.inRange(hsv, HSV_THRESHOLDS["red2"]["low"], HSV_THRESHOLDS["red2"]["high"]) 
+    m1 = cv2.inRange(hsv, HSV_THRESHOLDS["red1"]["low"], HSV_THRESHOLDS["red1"]["high"])                     #--already defined at the top
+    m2 = cv2.inRange(hsv, HSV_THRESHOLDS["red2"]["low"], HSV_THRESHOLDS["red2"]["high"])                     
     m3 = cv2.inRange(hsv, HSV_THRESHOLDS["yellow"]["low"], HSV_THRESHOLDS["yellow"]["high"]) 
-    color_mask = cv2.bitwise_or(cv2.bitwise_or(m1, m2), m3) 
+    color_mask = cv2.bitwise_or(cv2.bitwise_or(m1, m2), m3)                                                    #--combined the mask
     
     black_mask = cv2.inRange(hsv, HSV_THRESHOLDS["black"]["low"], HSV_THRESHOLDS["black"]["high"])
     
     color_roi = color_mask[70:120, 0:160] #--vertical, horizontal--
     black_roi = black_mask[70:120, 0:160] #--vertical, horizontal--
     
-    c_px = cv2.countNonZero(color_roi)
-    b_px = cv2.countNonZero(black_roi)
+    c_px = cv2.countNonZero(color_roi)        #--count how many pixels that are white, colour has turn to white
+    b_px = cv2.countNonZero(black_roi)        #--count how many pixels that are white, black has turn to white
     
     if c_px > COLOR_THRESHOLD:    # Priority 1: If I see enough RED/YELLOW
         active_roi = color_roi       # Only use the color line for math
@@ -266,7 +266,7 @@ try:
                 move_robot(err, count) 
 
             # Handle "Left-Out/Right-Out" when color is lost but memory is active
-            elif color_entry_side is not None and total_color < 100 and b_px < BLACK_THRESHOLD:
+            elif color_entry_side is not None and total_color < 100 and b_px < BLACK_THRESHOLD:        #--added the black_threshold to make it break out of the loop
                 print(f"Color lost! Memory Pivot: {color_entry_side}")
                 last_error = -40 if color_entry_side == "left" else 40
                 move_robot(None, 0) # Force pivot in entry direction
