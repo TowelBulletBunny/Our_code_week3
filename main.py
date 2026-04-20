@@ -230,14 +230,14 @@ try:
                 detection_frames += 1 
                 if detection_frames >= REQUIRED_FRAMES: 
                     best_name, max_matches = "Unknown", 0 
-                    if crop_mask is not None and len(templates) > 0: 
-                        live_skel = get_skeleton(cv2.resize(crop_mask, (120, 120))) 
-                        kp_live, des_live = orb.detectAndCompute(live_skel, None) 
-                        if des_live is not None: 
+                    if crop_mask is not None and len(templates) > 0:             # Ensure we have a cropped image of the symbol and templates loaded to compare against
+                        live_skel = get_skeleton(cv2.resize(crop_mask, (120, 120)))     # 1. Standardize the live crop and extract its "skeleton" (thin 1-pixel lines)
+                        kp_live, des_live = orb.detectAndCompute(live_skel, None)         # 2. Extract ORB keypoints (features) and descriptors (math fingerprints) from the live skeleton
+                        if des_live is not None:                                             # 3. If features were found, start comparing them against every template in the 'templates' folder
                             for name, des_template in templates.items(): 
-                                matches = bf.match(des_template, des_live) 
-                                good = [m for m in matches if m.distance < GOOD_MATCH_DIST] 
-                                if len(good) > max_matches: 
+                                matches = bf.match(des_template, des_live)                     # Use Brute-Force Matcher to find similar points between template and live feed
+                                good = [m for m in matches if m.distance < GOOD_MATCH_DIST]     # Filter for 'good' matches based on distance (how closely they match mathematically)
+                                if len(good) > max_matches:                                     # Keep track of which template has the highest number of good matches
                                     max_matches = len(good); best_name = name 
 
                     if max_matches > MIN_MATCH_COUNT: 
